@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(node \"C:\\\\Users\\\\gdjen\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\0889d7c2844c1e25\\\\1bafe782-3ab8-4a19-a757-666e48ca770a\\\\scratchpad\\\\sectiontest.js\")",
+      "PowerShell(node $f)",
+      "PowerShell($d = \"C:\\\\Users\\\\gdjen\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\0889d7c2844c1e25\\\\1bafe782-3ab8-4a19-a757-666e48ca770a\\\\scratchpad\"; node \"$d\\\\patchtest.js\"; if \\($?\\) { node \"$d\\\\sectiontest.js\" })"
+    ]
+  }
+}

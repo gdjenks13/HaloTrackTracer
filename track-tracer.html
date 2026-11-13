@@ -1,0 +1,229 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Supercross Track Tracer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="track-tracer.css">
+</head>
+<body>
+
+<div class="app">
+  <!-- Top bar: file actions, like an editor's menu row -->
+  <header class="topbar">
+    <div class="brand">Track <span>Tracer</span></div>
+    <nav class="menu" aria-label="File">
+      <label class="mbtn" for="file" title="Load your track image (or drop it on the board)">Load image…</label>
+      <input id="file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+      <label class="mbtn" for="projFile" title="Open a saved tracing (.json)">Open tracing…</label>
+      <input id="projFile" type="file" accept=".json,application/json" hidden>
+      <button class="mbtn" id="dlProj" title="Save your sections, grades, markers and scale">Save tracing</button>
+      <span class="vsep"></span>
+      <button class="mbtn" id="bUndo" title="Undo (Ctrl+Z)">Undo</button>
+    </nav>
+    <span class="msg" id="msgProj"></span>
+  </header>
+
+  <!-- Workspace: tool shelf, board with tool settings, status bar, elevation strip -->
+  <main class="work">
+    <div class="viewport">
+      <div class="shelf" role="toolbar" aria-orientation="vertical" aria-label="Tools">
+        <button class="tool" id="tTrace" aria-pressed="true" title="Trace (T): add straights and turns to the active path">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 16 L9 16 A6 6 0 0 0 15 10 L15 4"/><circle cx="3" cy="16" r="1.8"/><circle cx="15" cy="4" r="1.8"/></svg><span>Trace</span></button>
+        <button class="tool" id="tGrade" aria-pressed="false" title="Grade (G): click where a slope starts and ends">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 16 L7 16 L13 6 L18 6"/><path d="M2 18 L18 18" class="thin"/></svg><span>Grade</span></button>
+        <button class="tool" id="tJump" aria-pressed="false" title="Jump (J): drop a jump marker on the track">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 15 L18 15" class="thin"/><rect x="8.5" y="5" width="3" height="10"/></svg><span>Jump</span></button>
+        <button class="tool" id="tCal" aria-pressed="false" title="Set scale (C): click across one lane, then enter its width">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10 L17 10"/><path d="M3 6 L3 14 M17 6 L17 14" /></svg><span>Scale</span></button>
+        <button class="tool" id="tPan" aria-pressed="false" title="Pan (P): drag to move the view. Right-drag or Space-drag also pans">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2 L10 18 M2 10 L18 10 M10 2 L7.5 4.5 M10 2 L12.5 4.5 M10 18 L7.5 15.5 M10 18 L12.5 15.5 M2 10 L4.5 7.5 M2 10 L4.5 12.5 M18 10 L15.5 7.5 M18 10 L15.5 12.5"/></svg><span>Pan</span></button>
+        <span class="hsep"></span>
+        <button class="tool" id="bFit" title="Frame the image (F)">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7 L3 3 L7 3 M13 3 L17 3 L17 7 M17 13 L17 17 L13 17 M7 17 L3 17 L3 13"/></svg><span>Fit</span></button>
+      </div>
+
+      <div class="board" id="board">
+        <canvas id="cv" aria-label="Tracing board"></canvas>
+        <!-- Tool settings: only the active tool's options show -->
+        <div class="toolhdr" role="toolbar" aria-label="Tool settings">
+          <div class="ts" data-tool="trace">
+            <div class="seg" role="radiogroup" aria-label="Next section">
+              <button data-kind="s" title="Straight (S)">Straight</button>
+              <button data-kind="t" title="Turn (R)">Turn</button>
+            </div>
+            <div class="seg" role="radiogroup" aria-label="Turn shape" id="turnModeWrap" hidden>
+              <button data-tmode="set" title="The turn uses the angle you type; your click sets its radius">Set angle</button>
+              <button data-tmode="free" title="The turn bends to wherever you click, any angle">Free</button>
+            </div>
+            <label class="fld" id="turnWrap" hidden title="How much the heading changes through the turn. 180 = hairpin">Angle <input id="turnAng" type="number" min="1" max="270" step="5" value="90">°</label>
+            <span class="vsep"></span>
+            <label class="chk" title="Every heading and turn is a multiple of 5° from the image axes"><input id="snap5" type="checkbox" checked> 5° steps</label>
+            <label class="fld" title="Start points, lengths and radii land on multiples of this. 0 = off">Grid <input id="gridWu" type="number" min="0" step="0.25" value="0.25"> wu</label>
+          </div>
+          <div class="ts" data-tool="jump" hidden>
+            <label class="fld">Marker <select id="jumpSize"></select></label>
+          </div>
+          <div class="ts" data-tool="cal" hidden>
+            <label class="fld" title="The real width of what you measured. One lane = 4 wu">Measured <input id="calDist" type="number" step="0.1" min="0.1" value="4"> wu</label>
+            <button id="calApply" class="primary" disabled>Apply</button>
+          </div>
+          <div class="ts" data-tool="grade" hidden><span class="tsnote">Set the slope in the Elevation panel once both ends are picked.</span></div>
+          <div class="ts" data-tool="pan" hidden><span class="tsnote">Drag to move · scroll to zoom</span></div>
+        </div>
+        <div class="sample-tag" id="sampleTag">Sample track</div>
+      </div>
+
+      <footer class="status" aria-live="polite">
+        <span id="hint"></span>
+        <span class="readout mono" id="readout"></span>
+      </footer>
+    </div>
+
+    <section class="profile" aria-labelledby="h-prof">
+      <div class="profile-head">
+        <h2 id="h-prof">Elevation <span id="profName"></span></h2>
+        <span class="mono" id="profRead"></span>
+      </div>
+      <div class="profile-plot"><canvas id="prof" role="img" aria-label="Height along the active path"></canvas></div>
+    </section>
+  </main>
+
+  <!-- Properties: collapsible panels, label on the left, value on the right -->
+  <aside class="props" aria-label="Properties">
+    <details class="panel" data-key="image" open>
+      <summary>Image</summary>
+      <div class="pbody">
+        <div class="prop"><span>Scale</span><b class="mono" id="scaleOut"></b></div>
+        <div class="prop"><label for="layoutNum" title="Shrinks or stretches the whole layout. Blocks keep their size.">Layout size</label>
+          <div class="pair"><input id="layout" type="range" min="50" max="200" step="1" value="100" aria-label="Layout size"><input id="layoutNum" type="number" min="50" max="200" step="1" value="100"><i>%</i></div></div>
+        <div class="prop"><label for="rotNum" title="Turn the image under the board. + is counter-clockwise.">Rotation</label>
+          <div class="pair"><input id="rot" type="range" min="-45" max="45" step="0.1" value="0" aria-label="Image rotation"><input id="rotNum" type="number" min="-45" max="45" step="0.1" value="0"><i>°</i><button id="rotZero" class="icon" title="Reset to 0°">↺</button></div></div>
+        <div class="prop"><span></span><label class="chk" title="Off: only the image turns. On: paths and jump markers turn with it."><input id="rotPaths" type="checkbox"> Turn paths with it</label></div>
+      </div>
+    </details>
+
+    <details class="panel" data-key="paths" open>
+      <summary>Paths</summary>
+      <div class="pbody">
+        <div class="outliner" id="paths"></div>
+        <div class="btnrow">
+          <button id="addLoop" title="A closed lap">+ Loop</button>
+          <button id="addOpen" title="A path with two ends">+ Open</button>
+          <button id="addStart" title="A straight that narrows from its first width to its second">+ Start</button>
+          <button id="clearAll" class="danger" title="Remove every path and marker (Undo brings them back)">Clear</button>
+        </div>
+      </div>
+    </details>
+
+    <details class="panel" data-key="active" open>
+      <summary id="secHead">Active path</summary>
+      <div class="pbody">
+        <div id="secList"></div>
+        <div class="msg" id="msgSec"></div>
+        <div class="btnrow"><button id="snapAll" title="Rounds every start heading and turn angle to 5°">Snap all to 5°</button></div>
+      </div>
+    </details>
+
+    <details class="panel" data-key="elev">
+      <summary>Elevation</summary>
+      <div class="pbody">
+        <div class="prop"><label for="z0" title="Height of the active path where it starts">Start height</label><div class="pair"><input id="z0" type="number" step="0.5" value="0"><i>wu</i></div></div>
+        <div id="gradeForm" class="grade-form" hidden>
+          <div class="prop"><label for="gShape">Shape</label>
+            <select id="gShape"><option value="const">Constant grade</option><option value="curve">Gradual curve</option></select></div>
+          <div class="prop"><label for="gStart" id="gStartLabel">Grade</label>
+            <div class="pair"><input id="gStart" type="number" step="0.5" min="-100" max="100" value="4"><i>%</i>
+              <span class="pair" id="gEndWrap" hidden><i>to</i><input id="gEnd" type="number" step="0.5" min="-100" max="100" value="4" aria-label="End grade"><i>%</i></span></div></div>
+          <p class="sub mono" id="gPreview"></p>
+          <div class="btnrow"><button class="primary" id="gAdd">Add section</button><button id="gCancel">Cancel</button></div>
+        </div>
+        <div class="msg" id="msgGrade"></div>
+        <div class="list" id="gradeList"></div>
+        <div class="stats">
+          <div class="stat"><b id="sRise">–</b><span>height range</span></div>
+          <div class="stat"><b id="sSteep">–</b><span>% steepest</span></div>
+          <div class="stat"><b id="sLip">–</b><span>worst lip</span></div>
+        </div>
+        <div class="pills" id="elevPills"></div>
+      </div>
+    </details>
+
+    <details class="panel" data-key="jumps">
+      <summary>Jump markers</summary>
+      <div class="pbody">
+        <p class="sub">Block, 4X4, Flat on edge across the lane. Use the Jump tool to place one; drag its handle to turn it (90° snaps, Ctrl = free).</p>
+        <div class="list" id="jumpList"></div>
+      </div>
+    </details>
+
+    <details class="panel" data-key="blocks" open>
+      <summary>Blocks</summary>
+      <div class="pbody">
+        <div class="prop"><label for="piece">Piece</label><select id="piece"><option value="custom">Custom size…</option></select></div>
+        <div id="customRow" hidden>
+          <div class="prop"><label for="pName">Palette name</label><input id="pName" type="text" value="bb_4x4"></div>
+          <div class="prop"><label for="pLen">Size L × W</label><div class="pair"><input id="pLen" type="number" step="0.1" min="0.2" value="4"><i>×</i><input id="pWid" type="number" step="0.1" min="0.2" value="4" aria-label="Width"></div></div>
+        </div>
+        <div class="prop"><label for="trackW" title="Pieces narrower than this are laid in side-by-side rows">Track width</label><div class="pair"><input id="trackW" type="number" step="0.5" min="0.5" max="40" value="4"><i>wu</i><span class="sub" id="rowsOut"></span></div></div>
+        <div class="prop"><label for="borderKind" title="Turn borders on per path in Active path. A start straight uses Skyline Wall Panels.">Border style</label>
+          <select id="borderKind">
+            <option value="column">Columns, every 4 wu</option>
+            <option value="railEdge">5X1 rail, on edge</option>
+            <option value="railFlat">5X1 rail, flat</option>
+          </select></div>
+        <div class="prop"><label for="tol" title="Square blocks open a gap on the outside of a bend; they overlap more until the gap is at most this">Bend gap ≤</label><div class="pair"><input id="tol" type="number" step="0.05" min="0" max="4" value="0.05"><i>wu</i></div></div>
+        <div class="prop"><label for="slots">Free slots</label><div class="pair"><input id="slots" type="number" step="1" min="1" max="651" value="651"><label class="chk" title="Relax the bend gap until the track fits the free slots"><input id="fit" type="checkbox" checked> Fit</label></div></div>
+        <div class="prop"><span></span><label class="chk"><input id="showBlocks" type="checkbox" checked> Show blocks</label></div>
+        <div class="stats">
+          <div class="stat"><b id="sBlocks">–</b><span>blocks</span></div>
+          <div class="stat"><b id="sLen">–</b><span>wu of track</span></div>
+          <div class="stat"><b id="sTol">–</b><span>bend gap</span></div>
+        </div>
+        <div class="pills" id="budgetRow"></div>
+      </div>
+    </details>
+
+    <details class="panel" data-key="export" open>
+      <summary>Export to Halo Map Studio</summary>
+      <div class="pbody">
+        <div class="prop"><span title="Blank = where the HMS camera aims. Z = height of the block centres at elevation 0. Read a spot with camera get.">Drop at</span>
+          <div class="pair xyz"><input id="ox" type="number" step="0.5" placeholder="X" aria-label="Origin X"><input id="oy" type="number" step="0.5" placeholder="Y" aria-label="Origin Y"><input id="oz" type="number" step="0.5" placeholder="Z" aria-label="Origin Z"></div></div>
+        <h3 class="subhead">Prefab file <span class="sub">stock HMS</span></h3>
+        <div class="btnrow"><button class="primary" id="dlPrefab">Save prefab</button><button id="copyPrefab">Copy commands</button><span class="msg" id="msgPrefab"></span></div>
+        <textarea id="prefabCmd" readonly aria-label="prefab commands" title="Run these in View ▸ Script console. Fix the path to where you saved the file."></textarea>
+        <details class="sub-panel">
+          <summary>One-line sweep <span class="sub">modified HMS, flat only</span></summary>
+          <p class="warnbox" id="sweepWarn" hidden></p>
+          <textarea id="sweepOut" readonly aria-label="sweep command"></textarea>
+          <div class="btnrow"><button id="copySweep">Copy command</button><button id="dlPts">Save points (.txt)</button><span class="msg" id="msgSweep"></span></div>
+        </details>
+        <details class="sub-panel">
+          <summary>Reference image under the track</summary>
+          <p class="sub">Tools ▸ Import geometry, pick the image, Scale <b class="mono" id="refScale"></b>, same X Y and a little below Z. As script:</p>
+          <textarea id="refCmd" readonly aria-label="reference image commands"></textarea>
+          <p class="warnbox" id="refRot" hidden></p>
+        </details>
+      </div>
+    </details>
+
+    <details class="panel" data-key="help">
+      <summary>Help</summary>
+      <div class="pbody help">
+        <p><b>Scale.</b> Pick the Scale tool, click across one lane edge to edge, enter its real width (4 wu) and press Apply.</p>
+        <p><b>Tracing.</b> Add a path, click where it starts, then click ahead of the end. Each section starts where the last one ended and keeps its direction. A <b>straight</b> runs as far as your click (the first one also sets the heading). A <b>turn</b> with <b>Set angle</b> uses the angle you type and your click sets its radius; with <b>Free</b> it bends to wherever you click.</p>
+        <p><b>Editing.</b> Drag a section's end dot to resize it. Right-click a dot or press <kbd>Del</kbd> to delete it; later sections join the one before. Type exact values in Active path.</p>
+        <p><b>Square to Halo.</b> With 5° steps on, 0°, 90°, 180° and 270° line up with HMS's axes as long as you place the prefab without <code>yaw</code>.</p>
+        <p><b>Keys.</b> <kbd>T</kbd> trace · <kbd>S</kbd> straight · <kbd>R</kbd> turn · <kbd>G</kbd> grade · <kbd>J</kbd> jump · <kbd>C</kbd> scale · <kbd>P</kbd> pan · <kbd>F</kbd> fit · <kbd>Ctrl+Z</kbd> undo · <kbd>Esc</kbd> cancel.</p>
+        <p>Your tracing is kept in this browser between visits. The image is not; load it again.</p>
+      </div>
+    </details>
+  </aside>
+</div>
+
+<script src="track-tracer.js"></script>
+</body>
+</html>
